@@ -15,8 +15,6 @@ fn main() {
 }
 
 fn build_ui(app: &Application) {
-    let files: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
-
     // Load simple CSS to improve appearance
     let css = r#"
     .root { background-color: #f5f7fa; }
@@ -50,7 +48,6 @@ fn build_ui(app: &Application) {
 
     let file_list_label = Label::builder().label("").build();
     vbox.append(&file_list_label);
-    // The file pool (multi-selector) shows added file names — hide the duplicate label
     file_list_label.set_visible(false);
 
     // File pool box (shows checkboxes for each added file) inside a scroller
@@ -59,7 +56,6 @@ fn build_ui(app: &Application) {
     file_pool_scroller.set_child(Some(&file_pool_box));
     vbox.append(&file_pool_scroller);
 
-    // Pool controls
     let pool_controls = GtkBox::builder().orientation(Orientation::Horizontal).spacing(6).build();
     let select_all_btn = Button::with_label("Select All");
     let remove_selected_btn = Button::with_label("Remove Selected");
@@ -67,11 +63,9 @@ fn build_ui(app: &Application) {
     pool_controls.append(&remove_selected_btn);
     vbox.append(&pool_controls);
 
-    // Add files button (optional file explorer)
     let add_files_btn = Button::with_label("Add files");
     vbox.append(&add_files_btn);
 
-    // Function groups as blocks
     let transform_frame = Frame::builder().label("Transform").build();
     let transform_box = GtkBox::builder().orientation(Orientation::Horizontal).spacing(6).margin_top(6).margin_bottom(6).build();
     transform_frame.set_child(Some(&transform_box));
@@ -86,7 +80,6 @@ fn build_ui(app: &Application) {
     let btn_rotate = ToggleButton::with_label("🔁 Rotate PDF");
     let btn_split = ToggleButton::with_label("📐 Split PDF");
     let btn_merge = ToggleButton::with_label("🧩 Merge PDFs");
-    // style function buttons
     btn_rotate.style_context().add_class("func-button");
     btn_split.style_context().add_class("func-button");
     btn_merge.style_context().add_class("func-button");
@@ -127,9 +120,6 @@ fn build_ui(app: &Application) {
     filename_entry.set_placeholder_text(Some("Output filename (e.g. output.pdf)"));
     vbox.append(&filename_entry);
 
-    // Compression uses a single default (Standard) mode in the backend; no UI options.
-
-    // Rotate direction chooser (visible only when Rotate is selected)
     let rotate_box = GtkBox::builder().orientation(Orientation::Horizontal).spacing(6).build();
     let rot_90_cw = ToggleButton::with_label("90° CW");
     let rot_90_ccw = ToggleButton::with_label("90° CCW");
@@ -140,24 +130,18 @@ fn build_ui(app: &Application) {
     rotate_box.append(&rot_180);
     rotate_box.set_visible(false);
     vbox.append(&rotate_box);
-    // Pages entry for rotate: allow input like "1-3,5" (empty = all pages)
     let pages_entry = Entry::new();
     pages_entry.set_placeholder_text(Some("Pages (e.g. 1-3,5) — empty = all"));
     rotate_box.append(&pages_entry);
 
-    // Preview image (no separate Preview button) — shows first page (respecting rotation selection)
     let preview_image = gtk::Image::new();
     preview_image.set_pixel_size(160);
     preview_image.style_context().add_class("preview-image");
     vbox.append(&preview_image);
 
-    // Preview generator holder: will contain a closure that spawns a background task
-    // to render the first page (and rotate if requested) and update `preview_image`.
     let PREVIEW_GENERATOR: Rc<RefCell<Option<std::boxed::Box<dyn Fn() + 'static>>>> = Rc::new(RefCell::new(None));
-    // Rebuild workplace closure holder so earlier handlers can request a rebuild
     let REBUILD_WORKPLACE: Rc<RefCell<Option<std::boxed::Box<dyn Fn() + 'static>>>> = Rc::new(RefCell::new(None));
 
-    // Build and store the preview generator closure now that `preview_image` and rotate toggles exist.
     {
         let files_for_preview = files.clone();
         let preview_image_cl = preview_image.clone();
@@ -167,7 +151,6 @@ fn build_ui(app: &Application) {
         let gen = move || {
             let current_files = files_for_preview.borrow().clone();
             if current_files.is_empty() {
-                // clear preview
                 preview_image_cl.clear();
                 return;
             }
@@ -196,7 +179,6 @@ fn build_ui(app: &Application) {
                     match cmd.status() {
                         Ok(s) if s.success() => {
                             if degrees != 0 {
-                                // try to rotate using ImageMagick `convert` if available
                                 if let Ok(_) = std::process::Command::new("convert").arg("-version").status() {
                                     let deg_arg = degrees.to_string();
                                     let mut rcmd = std::process::Command::new("convert");
@@ -207,7 +189,6 @@ fn build_ui(app: &Application) {
                                         Err(e) => { let _ = sender.send(Err(format!("failed to spawn convert: {}", e))); }
                                     }
                                 } else {
-                                    // rotate not available; just send the produced PNG
                                     let _ = sender.send(Ok(tmp_png));
                                 }
                             } else {
@@ -222,7 +203,6 @@ fn build_ui(app: &Application) {
                 }
             });
 
-            // attach receiver to update preview on main context
             let preview_image_for_attach = preview_image_cl.clone();
             receiver.attach(None, move |res| {
                 match res {
@@ -235,7 +215,6 @@ fn build_ui(app: &Application) {
         PREVIEW_GENERATOR.borrow_mut().replace(std::boxed::Box::new(gen));
     }
 
-    // Workplace / status panel: shows three columns per file (input, progress, output)
     let workplace = Frame::builder().label("Workplace").build();
     let wp_box = GtkBox::builder().orientation(Orientation::Vertical).spacing(6).margin_top(6).margin_bottom(6).build();
     workplace.set_child(Some(&wp_box));
@@ -247,18 +226,15 @@ fn build_ui(app: &Application) {
     open_output_btn.set_sensitive(false);
 
     wp_box.append(&wp_input);
-    // We already show input filenames in the file pool; hide the flat input label.
     wp_input.set_visible(false);
     wp_box.append(&wp_action);
     wp_box.append(&wp_status);
 
-    // Scrolled area with listbox for per-file rows
     let scroller = gtk::ScrolledWindow::builder().vexpand(true).min_content_height(120).build();
     let file_listbox = gtk::ListBox::new();
     scroller.set_child(Some(&file_listbox));
     wp_box.append(&scroller);
 
-    // keep per-file progress bars and output labels so Run can update them
     let files_progress: Rc<RefCell<Vec<ProgressBar>>> = Rc::new(RefCell::new(Vec::new()));
     let files_output_labels: Rc<RefCell<Vec<Label>>> = Rc::new(RefCell::new(Vec::new()));
 
@@ -266,7 +242,6 @@ fn build_ui(app: &Application) {
 
     vbox.append(&workplace);
 
-    // closure to rebuild the workplace rows from `files`
     let rebuild_workplace = {
         let file_listbox = file_listbox.clone();
         let files = files.clone();
@@ -274,7 +249,6 @@ fn build_ui(app: &Application) {
         let files_output_labels = files_output_labels.clone();
         let filename_entry = filename_entry.clone();
         Box::new(move || {
-            // clear existing rows
             while let Some(row) = file_listbox.row_at_index(0) {
                 file_listbox.remove(&row);
             }
@@ -285,7 +259,6 @@ fn build_ui(app: &Application) {
                 let row = GtkBox::builder().orientation(Orientation::Horizontal).spacing(8).margin_top(4).margin_bottom(4).build();
                 let in_lbl = Label::new(None);
                 let in_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
-                // left-align input column, truncate if too long
                 let max_in = 28;
                 if in_name.chars().count() > max_in {
                     let short: String = in_name.chars().take(max_in - 1).collect();
@@ -304,7 +277,6 @@ fn build_ui(app: &Application) {
                 bar.set_valign(gtk::Align::Center);
 
                 let out_lbl = Label::new(None);
-                // right-align output column, truncate if too long and show tooltip
                 let out_full = filename_entry.text().as_str().to_string();
                 let max_out = 36;
                 if out_full.chars().count() > max_out {
@@ -341,7 +313,6 @@ fn build_ui(app: &Application) {
     let header_box = GtkBox::builder().orientation(Orientation::Horizontal).spacing(8).build();
     let app_icon = gtk::Image::builder().icon_name("application-pdf-symbolic").build();
     let title_lbl = Label::builder().label("PDF Toolset").build();
-    // spacer to push actions to the right
     let spacer = GtkBox::builder().orientation(Orientation::Horizontal).build();
     spacer.set_hexpand(true);
     let header_add = Button::with_label("＋");
@@ -352,7 +323,6 @@ fn build_ui(app: &Application) {
     header_box.append(&header_add);
     header_box.append(&header_run);
 
-    // wire header buttons to existing actions
     let add_files_btn_cl = add_files_btn.clone();
     header_add.connect_clicked(move |_| {
         add_files_btn_cl.emit_clicked();
@@ -370,10 +340,7 @@ fn build_ui(app: &Application) {
         .child(&vbox)
         .build();
 
-    // Use the header box as an in-app toolbar (keep native titlebar so window is movable)
     vbox.prepend(&header_box);
-
-    // native titlebar provides minimize/close; no in-app handlers required
 
     let files_clone = files.clone();
     let file_list_label_clone = file_list_label.clone();
@@ -381,10 +348,7 @@ fn build_ui(app: &Application) {
     let file_pool_box_clone = file_pool_box.clone();
     let filename_entry_for_drop = filename_entry.clone();
     let file_checks: Rc<RefCell<Vec<gtk::CheckButton>>> = Rc::new(RefCell::new(Vec::new()));
-    // keep a separate clone for the drop handler so the main `file_checks` can be
-    // cloned for other closures later without being moved
     let file_checks_for_drop = file_checks.clone();
-    // (no preview control)
     let drop_target = gtk::DropTarget::new(GlibType::STRING, gdk::DragAction::COPY);
     let preview_gen_for_drop = PREVIEW_GENERATOR.clone();
     let rebuild_workplace_for_drop = REBUILD_WORKPLACE.clone();
@@ -394,7 +358,6 @@ fn build_ui(app: &Application) {
                 if raw.trim().is_empty() {
                     continue;
                 }
-                // handle file:// URIs
                 let p = raw.trim().trim_start_matches("file://");
                 let path = std::path::PathBuf::from(p);
                 files_clone.borrow_mut().push(path);
@@ -406,8 +369,7 @@ fn build_ui(app: &Application) {
                 .collect();
             file_list_label_clone.set_label(&names.join(", "));
             wp_input_clone.set_label(&format!("Input: {}", names.join(", ")));
-                // update pool UI: remove existing checkbuttons then recreate
-                for cb in file_checks_for_drop.borrow().iter() {
+            for cb in file_checks_for_drop.borrow().iter() {
                     file_pool_box_clone.remove(cb);
                 }
                 file_checks_for_drop.borrow_mut().clear();
@@ -416,17 +378,14 @@ fn build_ui(app: &Application) {
                     file_pool_box_clone.append(&cb);
                     file_checks_for_drop.borrow_mut().push(cb);
                 }
-                // set default output filename based on first input
                 if let Some(first) = files_clone.borrow().get(0) {
                     if let Some(stem) = first.file_stem().and_then(|s| s.to_str()) {
                         filename_entry_for_drop.set_text(&format!("{}_opt.pdf", stem));
                     }
                 }
-                // regenerate preview when files are dropped
                 if let Some(gen) = &*preview_gen_for_drop.borrow() {
                     (gen)();
                 }
-                // rebuild workplace rows
                 if let Some(rb) = &*rebuild_workplace_for_drop.borrow() {
                     (rb)();
                 }
@@ -442,7 +401,6 @@ fn build_ui(app: &Application) {
     let file_pool_for_add = file_pool_box.clone();
     let file_checks_for_add = file_checks.clone();
     let filename_entry_for_add = filename_entry.clone();
-    // (no preview control)
     let preview_gen_for_add = PREVIEW_GENERATOR.clone();
     let rebuild_workplace_for_add = REBUILD_WORKPLACE.clone();
     add_files_btn.connect_clicked(move |_| {
@@ -471,17 +429,14 @@ fn build_ui(app: &Application) {
                     file_pool_for_add.append(&cb);
                     file_checks_for_add.borrow_mut().push(cb);
                 }
-                // set default output filename based on first input
                 if let Some(first) = files_clone_for_add.borrow().get(0) {
                     if let Some(stem) = first.file_stem().and_then(|s| s.to_str()) {
                         filename_entry_for_add.set_text(&format!("{}_opt.pdf", stem));
                     }
                 }
-                // regenerate preview when files are added
                 if let Some(gen) = &*preview_gen_for_add.borrow() {
                     (gen)();
                 }
-                // rebuild workplace rows
                 if let Some(rb) = &*rebuild_workplace_for_add.borrow() {
                     (rb)();
                 }
@@ -490,7 +445,6 @@ fn build_ui(app: &Application) {
     });
 
     // Select All / Remove Selected behavior for the pool
-    // Use separate clones for each closure so the Rc isn't moved twice
     let file_checks_for_select_all = file_checks.clone();
     select_all_btn.connect_clicked(move |_| {
         for cb in file_checks_for_select_all.borrow().iter() {
@@ -507,7 +461,6 @@ fn build_ui(app: &Application) {
     let filename_entry_for_remove = filename_entry.clone();
     let rebuild_workplace_for_remove = REBUILD_WORKPLACE.clone();
     remove_selected_btn.connect_clicked(move |_| {
-        // find selected indices
         let mut to_remove: Vec<usize> = Vec::new();
         for (i, cb) in file_checks_for_remove.borrow().iter().enumerate() {
             if cb.is_active() {
@@ -517,18 +470,13 @@ fn build_ui(app: &Application) {
         if to_remove.is_empty() {
             return;
         }
-        // remove from end to start to keep indices valid
         for &i in to_remove.iter().rev() {
-            // remove widget from UI
             if let Some(cb) = file_checks_for_remove.borrow_mut().get(i) {
                 file_pool_for_remove.remove(cb);
             }
-            // remove from file_checks vector
             file_checks_for_remove.borrow_mut().remove(i);
-            // remove corresponding file path
             files_for_remove.borrow_mut().remove(i);
         }
-        // update labels
         let names: Vec<String> = files_for_remove
             .borrow()
             .iter()
@@ -536,7 +484,6 @@ fn build_ui(app: &Application) {
             .collect();
         file_list_label_for_remove.set_label(&names.join(", "));
         wp_input_for_remove.set_label(&format!("Input: {}", names.join(", ")));
-        // update default filename to next available first file
         if let Some(first) = files_for_remove.borrow().get(0) {
             if let Some(stem) = first.file_stem().and_then(|s| s.to_str()) {
                 filename_entry_for_remove.set_text(&format!("{}_opt.pdf", stem));
@@ -544,29 +491,24 @@ fn build_ui(app: &Application) {
         } else {
             filename_entry_for_remove.set_text("");
         }
-        // regenerate preview after files removed
         if let Some(gen) = &*preview_gen_for_remove.borrow() {
             (gen)();
         }
-        // rebuild workplace rows
         if let Some(rb) = &*rebuild_workplace_for_remove.borrow() {
             (rb)();
         }
     });
 
-    // State for selected action and output directory
     let selected_action: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
     let selected_action_clone = selected_action.clone();
 
     let output_dir: Rc<RefCell<Option<PathBuf>>> = Rc::new(RefCell::new(None));
     let output_dir_clone_for_choose = output_dir.clone();
 
-    // Toggle button selection logic: only one active at a time
-        let toggles: Vec<ToggleButton> = vec![btn_rotate.clone(), btn_split.clone(), btn_merge.clone(), btn_extract.clone(), btn_images.clone(), btn_compress.clone()];
+    let toggles: Vec<ToggleButton> = vec![btn_rotate.clone(), btn_split.clone(), btn_merge.clone(), btn_extract.clone(), btn_images.clone(), btn_compress.clone()];
         let toggles_rc = Rc::new(toggles);
         let filename_entry_for_toggles = filename_entry.clone();
         let files_for_toggles = files.clone();
-    // (no compress modes UI to manage)
 
     for tb in toggles_rc.iter() {
         let toggles_inner = toggles_rc.clone();
@@ -576,7 +518,6 @@ fn build_ui(app: &Application) {
         let files_local = files_for_toggles.clone();
         tb.connect_toggled(move |t| {
             if t.is_active() {
-                // deactivate others
                 for other in toggles_inner.iter() {
                     if other != t {
                         other.set_active(false);
@@ -585,7 +526,6 @@ fn build_ui(app: &Application) {
                 let label_str = t.label().map(|s| s.to_string()).unwrap_or_default();
                 sel_clone.borrow_mut().replace(label_str.clone());
                 wp_action_clone.set_label(&format!("Queued: {}", label_str));
-                // If Split or Convert to Images selected, set filename entry to default folder name
                 if label_str.contains("Split") {
                     if let Some(first) = files_local.borrow().get(0) {
                         if let Some(stem) = first.file_stem().and_then(|s| s.to_str()) {
@@ -600,7 +540,6 @@ fn build_ui(app: &Application) {
                     }
                 }
             } else {
-                // if none active, clear selection
                 let any = toggles_inner.iter().any(|b| b.is_active());
                 if !any {
                     sel_clone.borrow_mut().take();
@@ -610,9 +549,6 @@ fn build_ui(app: &Application) {
         });
     }
 
-    // no UI compress modes to manage
-
-    // Ensure rotate direction buttons are mutually exclusive
     let rotate_modes: Vec<ToggleButton> = vec![rot_90_cw.clone(), rot_90_ccw.clone(), rot_180.clone()];
     let rotate_modes_rc = Rc::new(rotate_modes);
     for rm in rotate_modes_rc.iter() {
@@ -628,7 +564,6 @@ fn build_ui(app: &Application) {
         });
     }
 
-    // Auto-preview when rotate options change (only if Rotate is active and files exist)
     let preview_gen_cl = PREVIEW_GENERATOR.clone();
     let files_for_preview_toggle = files.clone();
     let btn_rotate_clone_for_preview = btn_rotate.clone();
@@ -653,9 +588,7 @@ fn build_ui(app: &Application) {
     btn_rotate_cl.connect_toggled(move |b| {
         rotate_box_cl.set_visible(b.is_active());
     });
-    
 
-    // choose folder button (uses `zenity` for a simple native picker on Linux)
     choose_folder_btn.connect_clicked(move |_| {
         if let Ok(out) = std::process::Command::new("zenity").arg("--file-selection").arg("--directory").output() {
             if out.status.success() {
@@ -667,13 +600,11 @@ fn build_ui(app: &Application) {
         }
     });
 
-    // toggle choose folder sensitivity when checkbox changes
     let choose_folder_btn_clone = choose_folder_btn.clone();
     same_location.connect_toggled(move |c| {
         choose_folder_btn_clone.set_sensitive(!c.is_active());
     });
 
-    // update workplace inputs label when files change
     let files_for_run = files.clone();
     let window_for_run = window.clone();
     let selected_action_for_run = selected_action.clone();
