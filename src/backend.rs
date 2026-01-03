@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use lopdf::{Document, Object};
 use std::collections::{HashMap, HashSet};
 
-// Compression modes removed; compress will use the default (standard) settings.
 
 pub fn merge(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
     use lopdf::{Object, ObjectId, Bookmark};
@@ -13,14 +12,12 @@ pub fn merge(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
         return Err("No input files provided".into());
     }
 
-    // Load all documents
     let mut documents: Vec<Document> = Vec::new();
     for p in inputs {
         let d = Document::load(p).map_err(|e| format!("Failed to load {}: {}", p.display(), e))?;
         documents.push(d);
     }
 
-    // follow lopdf example to merge documents safely
     let mut max_id: u32 = 1;
     let mut pagenum: usize = 1;
     let mut documents_pages: BTreeMap<ObjectId, Object> = BTreeMap::new();
@@ -38,7 +35,6 @@ pub fn merge(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
                 .into_iter()
                 .map(|(_, object_id)| {
                     if !first {
-                        // add a bookmark pointing to the first page of this document
                         let bookmark = Bookmark::new(String::from(format!("Page_{}", pagenum)), [0.0, 0.0, 1.0], 0, object_id);
                         document.add_bookmark(bookmark, None);
                         first = true;
@@ -56,7 +52,6 @@ pub fn merge(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
         documents_objects.extend(doc.objects);
     }
 
-    // Catalog and Pages are mandatory
     let mut catalog_object: Option<(ObjectId, Object)> = None;
     let mut pages_object: Option<(ObjectId, Object)> = None;
 
@@ -67,7 +62,6 @@ pub fn merge(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
                 catalog_object = Some((if let Some((id, _)) = catalog_object { id } else { *object_id }, object.clone()));
             }
             "Pages" => {
-                // merge Pages dictionaries
                 if let Ok(dictionary) = object.as_dict() {
                     let mut dictionary = dictionary.clone();
                     if let Some((_, ref object)) = pages_object {
@@ -79,9 +73,9 @@ pub fn merge(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
                     pages_object = Some((if let Some((id, _)) = pages_object { id } else { *object_id }, Object::Dictionary(dictionary)));
                 }
             }
-            "Page" => {} // will be processed later
-            "Outlines" => {} // ignored for merge
-            "Outline" => {} // ignored for merge
+            "Page" => {}
+            "Outlines" => {}
+            "Outline" => {}
             _ => {
                 document.objects.insert(*object_id, object.clone());
             }
@@ -92,7 +86,6 @@ pub fn merge(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
         return Err("Pages root not found in input documents".into());
     }
 
-    // Collect pages into the Pages object
     for (object_id, object) in documents_pages.into_iter() {
         if let Ok(dictionary) = object.as_dict() {
             let mut dictionary = dictionary.clone();
@@ -108,13 +101,10 @@ pub fn merge(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
     let catalog_object = catalog_object.unwrap();
     let pages_object = pages_object.unwrap();
 
-    // Build new Pages dictionary
     if let Ok(dictionary) = pages_object.1.as_dict() {
         let mut dictionary = dictionary.clone();
-        // Count pages
         let count = document.objects.iter().filter(|(_, obj)| obj.type_name().unwrap_or("") == "Page").count();
         dictionary.set("Count", count as u32);
-        // Build Kids list
         let kids: Vec<_> = document.objects.iter().filter_map(|(id, obj)| {
             if obj.type_name().unwrap_or("") == "Page" {
                 Some(Object::Reference(*id))
@@ -126,7 +116,6 @@ pub fn merge(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
         document.objects.insert(pages_object.0, Object::Dictionary(dictionary));
     }
 
-    // Build new Catalog
     if let Ok(dictionary) = catalog_object.1.as_dict() {
         let mut dictionary = dictionary.clone();
         dictionary.set("Pages", pages_object.0);
@@ -136,7 +125,6 @@ pub fn merge(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
 
     document.trailer.set("Root", catalog_object.0);
 
-    // Update max id and renumber
     document.max_id = document.objects.len() as u32;
     document.renumber_objects();
     document.adjust_zero_pages();
@@ -153,14 +141,11 @@ pub fn merge(inputs: &[PathBuf], output: &Path) -> Result<(), String> {
     Ok(())
 }
 
-// Placeholder stubs for other functions (to be implemented one-by-one)
 pub fn split(_input: &Path, _output_dir: &Path) -> Result<(), String> {
-    // Split the input PDF into single-page PDFs saved into output_dir
     use lopdf::{Dictionary, Stream};
 
     let src = Document::load(_input).map_err(|e| format!("Failed to load {}: {}", _input.display(), e))?;
 
-    // helper to collect all referenced object ids starting from an Object
     fn collect_refs(obj: &lopdf::Object, doc: &Document, set: &mut HashSet<lopdf::ObjectId>) {
         match obj {
             lopdf::Object::Reference(id) => {
@@ -190,7 +175,6 @@ pub fn split(_input: &Path, _output_dir: &Path) -> Result<(), String> {
     }
 
     let pages = src.get_pages();
-    // determine final output directory: if _output_dir already looks like "<stem>-pages" use it, otherwise create a subfolder
     let final_out_dir = if let Some(stem) = _input.file_stem().and_then(|s| s.to_str()) {
         if let Some(fname) = _output_dir.file_name().and_then(|s| s.to_str()) {
             if fname == format!("{}-pages", stem) {
@@ -206,23 +190,19 @@ pub fn split(_input: &Path, _output_dir: &Path) -> Result<(), String> {
             p
         }
     } else {
-        // fallback: use the provided output_dir
         let _ = std::fs::create_dir_all(_output_dir);
         _output_dir.to_path_buf()
     };
 
     for (num, page_id) in pages.into_iter() {
-        // collect referenced objects starting from this page
         let mut refs: HashSet<lopdf::ObjectId> = HashSet::new();
         refs.insert(page_id);
         if let Ok(page_obj) = src.get_object(page_id) {
             collect_refs(page_obj, &src, &mut refs);
         }
 
-        // create mapping old_id -> new_id
         let mut mapping: HashMap<lopdf::ObjectId, lopdf::ObjectId> = HashMap::new();
         let mut out_doc = Document::with_version(&src.version);
-        // create Pages object id for new doc
         let pages_id = out_doc.new_object_id();
 
         for old_id in refs.iter() {
@@ -230,7 +210,6 @@ pub fn split(_input: &Path, _output_dir: &Path) -> Result<(), String> {
             mapping.insert(*old_id, new_id);
         }
 
-        // copy objects into out_doc with remapped references
         fn remap_object(obj: &lopdf::Object, mapping: &HashMap<lopdf::ObjectId, lopdf::ObjectId>) -> lopdf::Object {
             match obj {
                 lopdf::Object::Reference(r) => {
@@ -261,11 +240,9 @@ pub fn split(_input: &Path, _output_dir: &Path) -> Result<(), String> {
             }
         }
 
-        // insert remapped objects
         for (old_id, new_id) in mapping.iter() {
             if let Some(old_obj) = src.objects.get(old_id) {
                 let mut new_obj = remap_object(old_obj, &mapping);
-                // if this is the page object, set Parent to pages_id
                 if *old_id == page_id {
                     if let lopdf::Object::Dictionary(ref mut dict) = new_obj {
                         dict.set("Parent", pages_id);
@@ -275,14 +252,12 @@ pub fn split(_input: &Path, _output_dir: &Path) -> Result<(), String> {
             }
         }
 
-        // Build Pages dictionary
         let mut pages_dict = Dictionary::new();
         pages_dict.set("Type", lopdf::Object::Name(b"Pages".to_vec()));
         pages_dict.set("Kids", lopdf::Object::Array(vec![lopdf::Object::Reference(mapping[&page_id])]));
         pages_dict.set("Count", lopdf::Object::Integer(1));
         out_doc.objects.insert(pages_id, lopdf::Object::Dictionary(pages_dict));
 
-        // Build Catalog
         let catalog_id = out_doc.new_object_id();
         let mut catalog_dict = Dictionary::new();
         catalog_dict.set("Type", lopdf::Object::Name(b"Catalog".to_vec()));
@@ -302,7 +277,6 @@ pub fn split(_input: &Path, _output_dir: &Path) -> Result<(), String> {
 }
 
 pub fn extract_text(_input: &Path, _output_txt: &Path) -> Result<(), String> {
-    // Load document and extract text from all pages using lopdf's extract_text
     let doc = Document::load(_input).map_err(|e| format!("Failed to load {}: {}", _input.display(), e))?;
     let pages_map = doc.get_pages();
     let mut page_numbers: Vec<u32> = pages_map.keys().cloned().collect();
@@ -313,21 +287,17 @@ pub fn extract_text(_input: &Path, _output_txt: &Path) -> Result<(), String> {
 }
 
 pub fn compress(_input: &Path, _output: &Path) -> Result<(), String> {
-    // Pure-Rust compression: downscale and re-encode image XObjects to JPEG
     use image::imageops::FilterType;
     use image::{GenericImageView, DynamicImage};
 
     let mut doc = Document::load(_input).map_err(|e| format!("Failed to load {}: {}", _input.display(), e))?;
 
-    // default (standard) quality and scale
     let (quality, scale) = (75u8, 0.75f32);
 
-    // iterate over objects and process image XObjects
     let object_ids: Vec<_> = doc.objects.keys().cloned().collect();
     for id in object_ids {
         if let Some(obj) = doc.objects.get_mut(&id) {
             if let Object::Stream(ref mut stream) = obj {
-                // look for XObject /Image
                 let dict = &stream.dict;
                 let is_xobj = match dict.get(b"Type") {
                     Ok(o) => o.as_name().map(|n| n == b"XObject").unwrap_or(false),
@@ -339,7 +309,6 @@ pub fn compress(_input: &Path, _output: &Path) -> Result<(), String> {
                 };
 
                 if is_xobj && is_image {
-                    // try to decode existing stream bytes as an image (handle DCT/JPEG and raw where possible)
                     if let Ok(img) = image::load_from_memory(&stream.content) {
                         let (w, h) = img.dimensions();
                         let new_w = ((w as f32) * scale).max(1.0) as u32;
@@ -350,19 +319,15 @@ pub fn compress(_input: &Path, _output: &Path) -> Result<(), String> {
                         } else {
                             img.clone()
                         };
-                        // re-encode as JPEG with chosen quality
                         let mut out = Vec::new();
                         let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality);
                         if encoder.encode_image(&img2).is_err() {
-                            // fallback: skip this image
                             continue;
                         }
-                        // set stream content to encoded jpeg bytes and update dict
                         stream.content = out;
                         stream.dict.set("Filter", lopdf::Object::Name(b"DCTDecode".to_vec()));
                         stream.dict.set("ColorSpace", lopdf::Object::Name(b"DeviceRGB".to_vec()));
                         stream.dict.set("BitsPerComponent", lopdf::Object::Integer(8));
-                        // allow compression of other streams later
                         stream.allows_compression = true;
                     }
                 }
@@ -370,17 +335,14 @@ pub fn compress(_input: &Path, _output: &Path) -> Result<(), String> {
         }
     }
 
-    // run lopdf's general compression for streams (deflate where appropriate)
     doc.compress();
     doc.save(_output).map_err(|e| format!("Failed to save compressed PDF: {}", e))?;
     Ok(())
 }
 
 pub fn rotate(_input: &Path, _output: &Path, _degrees: i32, pages: Option<Vec<u32>>) -> Result<(), String> {
-    // Load document
     let mut doc = Document::load(_input).map_err(|e| format!("Failed to load {}: {}", _input.display(), e))?;
 
-    // normalize degrees to multiple of 90
     let mut deg = ((_degrees % 360) + 360) % 360;
     if deg % 90 != 0 {
         return Err("Rotation must be a multiple of 90 degrees".into());
@@ -393,10 +355,8 @@ pub fn rotate(_input: &Path, _output: &Path, _degrees: i32, pages: Option<Vec<u3
             .map_err(|e| format!("Failed to copy file for zero-rotation: {}", e));
     }
 
-    // If pages provided, build a lookup set
     let pages_set: Option<std::collections::HashSet<u32>> = pages.map(|v| v.into_iter().collect());
 
-    // For each page, set or update the Rotate entry (apply only if pages_set is None or contains this page number)
     for (page_number, page_id) in doc.get_pages().into_iter() {
         if let Some(ref set) = pages_set {
             if !set.contains(&page_number) {
@@ -422,18 +382,15 @@ pub fn rotate(_input: &Path, _output: &Path, _degrees: i32, pages: Option<Vec<u3
 }
 
 pub fn convert_to_images(_input: &Path, _output_dir: &Path, _format: &str) -> Result<(), String> {
-    // Use external `pdftoppm` to export pages to images into a dedicated subfolder
     if !_input.exists() {
         return Err(format!("Input PDF not found: {}", _input.display()));
     }
-    // choose format flag for pdftoppm
     let format_flag = match _format.to_lowercase().as_str() {
         "png" => "-png",
         "jpeg" | "jpg" => "-jpeg",
         other => return Err(format!("Unsupported image format: {}", other)),
     };
 
-    // final output directory: ensure it's a subfolder named `<stem>-images` unless already so
     let final_out_dir = if let Some(stem) = _input.file_stem().and_then(|s| s.to_str()) {
         if let Some(fname) = _output_dir.file_name().and_then(|s| s.to_str()) {
             if fname == format!("{}-images", stem) {
@@ -453,11 +410,9 @@ pub fn convert_to_images(_input: &Path, _output_dir: &Path, _format: &str) -> Re
         _output_dir.to_path_buf()
     };
 
-    // build output prefix: pdftoppm will append -1, -2 etc. for pages
     let prefix = final_out_dir.join(_input.file_stem().and_then(|s| s.to_str()).unwrap_or("page"));
     let prefix_str = prefix.to_string_lossy().to_string();
 
-    // run pdftoppm
     let status = std::process::Command::new("pdftoppm")
         .arg(format_flag)
         .arg(_input.to_string_lossy().as_ref())
