@@ -15,7 +15,8 @@ fn main() {
 }
 
 fn build_ui(app: &Application) {
-    // Load simple CSS to improve appearance
+    let files: Rc<RefCell<Vec<PathBuf>>> = Rc::new(RefCell::new(Vec::new()));
+
     let css = r#"
     .root { background-color: #f5f7fa; }
     .card { background-color: #ffffff; border-radius: 8px; padding: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
