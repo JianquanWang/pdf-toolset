@@ -42,7 +42,7 @@ jobs:
           cp README.md "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/"
           
           # Create control file
-          cat > "$PACKAGE_DIR/DEBIAN/control" <<'CONTROL'
+          cat > "$PACKAGE_DIR/DEBIAN/control" <<CONTROL
           Package: pdf-tools
           Version: $VERSION
           Architecture: amd64
@@ -52,7 +52,7 @@ jobs:
           CONTROL
           
           # Create desktop file
-          cat > "$PACKAGE_DIR/usr/share/applications/pdf-tools.desktop" <<'DESKTOP'
+          cat > "$PACKAGE_DIR/usr/share/applications/pdf-tools.desktop" <<DESKTOP
           [Desktop Entry]
           Name=PDF Toolset
           Comment=PDF manipulation tool
