@@ -1,5 +1,8 @@
 # PDF Toolset
 
+[![Latest Release](https://img.shields.io/github/v/release/JianquanWang/pdf-toolset?style=flat-square)](https://github.com/JianquanWang/pdf-toolset/releases/latest)
+[![Download .deb](https://img.shields.io/badge/download-.deb-blue?style=flat-square)](https://github.com/JianquanWang/pdf-toolset/releases/latest)
+
 A desktop application built with Rust and GTK4 for performing various PDF operations such as merging, splitting, rotating, extracting text, converting to images, and compressing PDFs. The app features a drag-and-drop interface for easy file handling.
 
 ![PDF Toolset UI](pdf-toolset.png)
