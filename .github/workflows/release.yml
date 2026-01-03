@@ -1,0 +1,78 @@
+name: Build and Release .deb Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev poppler-utils imagemagick
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Create package structure
+        run: |
+          PACKAGE_NAME="pdf-tools"
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          ARCH="amd64"
+          PACKAGE_DIR="${PACKAGE_NAME}_${VERSION}_${ARCH}"
+          
+          mkdir -p "$PACKAGE_DIR/DEBIAN"
+          mkdir -p "$PACKAGE_DIR/usr/bin"
+          mkdir -p "$PACKAGE_DIR/usr/share/applications"
+          mkdir -p "$PACKAGE_DIR/usr/share/icons/hicolor/256x256/apps"
+          
+          cp "target/release/$PACKAGE_NAME" "$PACKAGE_DIR/usr/bin/"
+          
+          cat > "$PACKAGE_DIR/DEBIAN/control" << EOF
+          Package: $PACKAGE_NAME
+          Version: $VERSION
+          Architecture: $ARCH
+          Maintainer: Jianquan Wang <your.email@example.com>
+          Description: PDF Toolset - A desktop app for PDF operations built with Rust and GTK4
+          Depends: libgtk-4-1, poppler-utils, imagemagick
+          EOF
+          
+          cat > "$PACKAGE_DIR/usr/share/applications/$PACKAGE_NAME.desktop" << EOF
+          [Desktop Entry]
+          Name=PDF Toolset
+          Comment=PDF manipulation tool
+          Exec=$PACKAGE_NAME
+          Icon=$PACKAGE_NAME
+          Terminal=false
+          Type=Application
+          Categories=Utility;
+          EOF
+          
+          convert -size 256x256 xc:#4A90E2 -gravity center -pointsize 72 -fill white -annotate +0+0 "PDF" "$PACKAGE_DIR/usr/share/icons/hicolor/256x256/apps/$PACKAGE_NAME.png"
+          
+          mkdir -p "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME"
+          cp README.md "$PACKAGE_DIR/usr/share/doc/$PACKAGE_NAME/"
+          
+          dpkg-deb --build "$PACKAGE_DIR"
+          echo "PACKAGE_DIR=$PACKAGE_DIR" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: pdf-tools_${{ env.VERSION }}_amd64.deb
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
